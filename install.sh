@@ -1,7 +1,43 @@
 #!/bin/bash
-# 荣耀手机电脑模式与超清投屏套件 - macOS 智能命令行安装程序
+# 荣耀手机电脑模式与超清投屏套件 - macOS 智能命令行安装程序 (支持一键在线安装与本地安装)
 set -e
-ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+REPO_URL="https://github.com/HUHANWEN09/-.git"
+INSTALL_TARGET="$HOME/honor-cast"
+
+# 检测是否是通过 curl | bash 在线运行，或者缺少仓库文件
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if [ -z "$SCRIPT_PATH" ] || [ ! -f "$SCRIPT_PATH" ]; then
+    IS_STANDALONE=1
+else
+    DIR="$( cd "$( dirname "$SCRIPT_PATH" )" && pwd )"
+    if [ ! -d "$DIR/macos" ] || [ ! -d "$DIR/bin" ]; then
+        IS_STANDALONE=1
+    else
+        IS_STANDALONE=0
+        ROOT_DIR="$DIR"
+    fi
+fi
+
+# 如果是在线运行，自动克隆仓库到 ~/honor-cast
+if [ "$IS_STANDALONE" -eq 1 ]; then
+    echo "================================================================"
+    echo "  荣耀手机电脑模式与超清投屏套件 - macOS 一键在线安装"
+    echo "================================================================"
+    echo "[下载] 正在自动从 GitHub 克隆完整套件到: $INSTALL_TARGET ..."
+    if [ -d "$INSTALL_TARGET/.git" ]; then
+        echo "  -> 检测到已存在安装目录，正在拉取最新代码..."
+        cd "$INSTALL_TARGET" && git pull origin main || true
+    else
+        rm -rf "$INSTALL_TARGET"
+        git clone "$REPO_URL" "$INSTALL_TARGET"
+    fi
+    cd "$INSTALL_TARGET"
+    chmod +x install.sh
+    exec bash "$INSTALL_TARGET/install.sh"
+    exit 0
+fi
+
 BIN_DIR="$ROOT_DIR/bin"
 MAC_DIR="$ROOT_DIR/macos"
 CORE_DIR="$MAC_DIR/core"
@@ -30,7 +66,8 @@ if command -v scrcpy >/dev/null 2>&1; then
 else
     echo "  -> 未检测到 scrcpy，正在通过 Homebrew 安装 scrcpy 与 android-platform-tools..."
     if ! command -v brew >/dev/null 2>&1; then
-        echo "❌ 未检测到 Homebrew，请先执行: /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""
+        echo "❌ 未检测到 Homebrew，请先在终端执行以下命令安装 Homebrew 后再试:"
+        echo "   /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
         exit 1
     fi
     brew install scrcpy android-platform-tools

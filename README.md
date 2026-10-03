@@ -87,14 +87,19 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 install.bat
 ```
 
-### 🍎 macOS 命令行一键安装
+### 🍎 macOS 真正一键在线安装（打开终端直接复制回车，全自动克隆+安装）
 
-打开 Mac「终端 (Terminal)」，进入本项目目录运行：
+在 Mac 上打开「终端 (Terminal)」，直接粘贴并运行以下任意一条命令即可（全自动从 GitHub 拉取并完成安装）：
 
 ```bash
-chmod +x install.sh && ./install.sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/HUHANWEN09/-/main/install.sh)"
 ```
-> 安装完成后，Mac 桌面和「应用程序」中会自动生成 **【荣耀电脑模式.app】** 和 **【荣耀手机投屏.app】** 两个图标，同时自动注册 `LaunchAgent` 实现**插上数据线即自动弹出电脑模式且手机自动黑屏**。
+
+> **或者**，如果您希望先手动克隆到本地再安装：
+> ```bash
+> git clone https://github.com/HUHANWEN09/-.git ~/honor-cast && cd ~/honor-cast && chmod +x install.sh && ./install.sh
+> ```
+> *安装完成后，Mac 桌面和「应用程序」中会自动生成 **【荣耀电脑模式.app】** 和 **【荣耀手机投屏.app】** 两个原生图标，同时自动注册 LaunchAgent 实现**插上数据线即自动弹出电脑模式且手机自动物理黑屏**。*
 
 ---
 
