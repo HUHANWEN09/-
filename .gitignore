@@ -1,0 +1,6 @@
+# 忽略个人私密 ADB 私钥文件（切勿将个人私钥上传至公开仓库）
+**/adbkey
+**/adbkey.pub
+*.log
+__pycache__/
+.DS_Store
