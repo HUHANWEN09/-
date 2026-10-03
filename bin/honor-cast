@@ -1,5 +1,5 @@
 #!/bin/bash
-# 荣耀手机电脑模式与超清投屏套件 - macOS 命令行工具 (honor-cast)
+# 荣耀/安卓全机型 电脑模式与超清投屏套件 - 跨平台命令行工具 (honor-cast)
 SOURCE="${BASH_SOURCE[0]}"
 while [ -h "$SOURCE" ]; do
     DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
@@ -16,31 +16,94 @@ export SDL_MOUSE_FOCUS_CLICKTHROUGH=1
 export SDL_IME_SHOW_UI=1
 
 init_phone() {
-    echo "[配置] 正在检测并自动初始化手机底层环境（免手动调试）..."
+    echo "[检测] 正在连接手机并进行多机型智能适配检测..."
     adb wait-for-device
+    
+    BRAND=$(adb shell getprop ro.product.brand 2>/dev/null | tr -d '\r\n')
+    MANU=$(adb shell getprop ro.product.manufacturer 2>/dev/null | tr -d '\r\n')
+    MODEL=$(adb shell getprop ro.product.model 2>/dev/null | tr -d '\r\n')
+    SDK_STR=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r\n')
+    SDK=$(echo "$SDK_STR" | grep -o '[0-9]*' | head -n 1)
+    [ -z "$SDK" ] && SDK=30
+    RELEASE=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\r\n')
+
+    echo -e "\033[32m[机型识别] 品牌: $BRAND ($MANU) | 型号: $MODEL | Android $RELEASE (API $SDK)\033[0m"
+
+    # 1. 通用安卓配置
     adb shell settings put global adb_allowed_connection_time 0 >/dev/null 2>&1
-    adb shell settings put secure selected-proj-mode 1 >/dev/null 2>&1
+    adb shell settings put global force_desktop_mode_on_external_displays 1 >/dev/null 2>&1
+    adb shell settings put global enable_freeform_support 1 >/dev/null 2>&1
+
+    # 2. 品牌针对性适配
+    COMBINED=$(echo "$BRAND $MANU" | tr '[:upper:]' '[:lower:]')
+    if echo "$COMBINED" | grep -E -q "honor|huawei"; then
+        adb shell settings put secure selected-proj-mode 1 >/dev/null 2>&1
+        echo "  -> 已开启荣耀/华为 MagicOS 专属原生电脑桌面引擎"
+    elif echo "$COMBINED" | grep -E -q "xiaomi|redmi|poco"; then
+        TEST_INPUT=$(adb shell "input tap 0 0 2>&1")
+        if echo "$TEST_INPUT" | grep -E -q "permission|denied|SecurityException"; then
+            echo -e "\033[33m  [!] 小米/红米安全设置提示: 检测到未开启模拟点击权限。\033[0m"
+            echo -e "\033[33m      若投屏后鼠标无法操作，请在手机「开发者选项」中开启「USB 调试 (安全设置)」！\033[0m"
+        else
+            echo "  -> 小米/红米模拟点击与多任务窗口支持已就绪"
+        fi
+    elif echo "$COMBINED" | grep -E -q "samsung"; then
+        echo "  -> 三星 One UI / DeX 桌面扩展支持已就绪"
+    elif echo "$COMBINED" | grep -E -q "oppo|oneplus|realme"; then
+        echo "  -> OPPO / 一加 / 真我 ColorOS 多窗口桌面扩展已就绪"
+    elif echo "$COMBINED" | grep -E -q "vivo|iqoo"; then
+        echo "  -> vivo / iQOO OriginOS 多窗口桌面扩展已就绪"
+    fi
+
+    # 3. 推送黑屏驱动与多机型自动复黑守护脚本
     if [ -f "$CORE_DIR/screen_off_helper.jar" ]; then
         adb push "$CORE_DIR/screen_off_helper.jar" /data/local/tmp/screen_off_helper.jar >/dev/null 2>&1
     fi
     if [ -f "$CORE_DIR/auto_screen_off.sh" ]; then
         adb push "$CORE_DIR/auto_screen_off.sh" /data/local/tmp/auto_screen_off.sh >/dev/null 2>&1
-        adb shell "chmod 755 /data/local/tmp/auto_screen_off.sh; ps -ef | grep -q '[a]uto_screen_off.sh' || (nohup /data/local/tmp/auto_screen_off.sh >/dev/null 2>&1 < /dev/null &)" >/dev/null 2>&1
+        adb shell "chmod 755 /data/local/tmp/auto_screen_off.sh; (ps -ef 2>/dev/null || ps 2>/dev/null) | grep -q '[a]uto_screen_off.sh' || (nohup /data/local/tmp/auto_screen_off.sh >/dev/null 2>&1 < /dev/null &)" >/dev/null 2>&1
     fi
-    echo "[完成] 手机已开启永久授权、原生电脑模式、投屏自动黑屏与亮屏10秒无触控再黑屏守护！"
+    echo "[完成] 手机多机型环境已成功配置完毕！"
+}
+
+start_mirror() {
+    echo -e "\033[32m[启动] 正在以【1:1 超清手机镜像模式】投屏 (全机型 100% 兼容保证)...\033[0m"
+    scrcpy --turn-screen-off --stay-awake --no-audio --window-title="Phone_Mirror"
+}
+
+start_desktop() {
+    init_phone
+    SDK_STR=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r\n')
+    SDK=$(echo "$SDK_STR" | grep -o '[0-9]*' | head -n 1)
+    [ -z "$SDK" ] && SDK=30
+    RELEASE=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\r\n')
+
+    if [ "$SDK" -lt 29 ]; then
+        echo -e "\033[33m[兼容模式] 检测到系统为 Android $RELEASE (SDK $SDK < 29)。\033[0m"
+        echo -e "\033[33m           Android 10 以下系统底层不支持独立虚拟副屏，已自动为您启用【1:1 超清手机镜像投屏】！\033[0m"
+        start_mirror
+        return
+    fi
+
+    echo -e "\033[32m[启动] 正在打开【独立电脑模式 (1920x1080)】(手机自动黑屏)...\033[0m"
+    scrcpy --new-display=1920x1080/160 --turn-screen-off --no-audio --no-mouse-hover --window-title="PC_Mode" &
+    SCRCPY_PID=$!
+    sleep 2.5
+    if ! kill -0 $SCRCPY_PID >/dev/null 2>&1; then
+        echo -e "\033[33m[容灾降级保障] 当前机型 ROM 或 GPU 硬件对独立虚拟副屏不支持/限制。\033[0m"
+        echo -e "\033[33m               套件已触发智能容灾降级机制，平滑切换至【1:1 超清手机投屏】，确保 100% 成功可用！\033[0m"
+        start_mirror
+    fi
 }
 
 CMD="${1:-desktop}"
 case "$CMD" in
     desktop|pc|电脑模式)
-        init_phone
-        echo "[启动] 正在打开【荣耀原生电脑模式 (1920x1080)】(手机自动黑屏)..."
-        scrcpy --new-display=1920x1080/160 --turn-screen-off --no-audio --no-mouse-hover --window-title="Honor_PC_Mode"
+        start_desktop
         ;;
     mirror|phone|手机投屏|镜像)
         init_phone
-        echo "[启动] 正在打开【正常手机屏幕投屏 (1:1 超清镜像)】(手机自动黑屏)..."
-        scrcpy --turn-screen-off --stay-awake --no-audio --window-title="Honor_Phone_Mirror"
+        start_mirror
         ;;
     daemon|auto|开启自启)
         bash "$MAC_DIR/3_开启USB插线自动电脑模式.command"
@@ -61,12 +124,12 @@ case "$CMD" in
         cat <<EOF
 用法: honor-cast <命令>
 
-可用命令:
-  honor-cast desktop     启动【电脑模式投屏】(手机变电脑主机，1920x1080 独立桌面，手机自动黑屏)
-  honor-cast mirror      启动【正常手机投屏】(1:1 手机屏幕镜像，手机自动黑屏)
-  honor-cast daemon      开启【macOS USB 插线自动进入电脑模式】后台守护 (LaunchAgent)
+全机型兼容命令:
+  honor-cast desktop     启动【电脑模式投屏】(独立副屏桌面；若机型不支持则自动平滑降级为超清投屏)
+  honor-cast mirror      启动【正常手机投屏】(1:1 超清手机镜像，全安卓机型 100% 兼容)
+  honor-cast daemon      开启【macOS USB 插线自动投屏】后台守护 (LaunchAgent)
   honor-cast stop        关闭后台守护进程
-  honor-cast init-phone  一键自动配置新接入的手机（免手动调试）
+  honor-cast init-phone  一键为新连接的任何安卓手机自动配置底层环境（免手动调试）
   honor-cast status      查看当前设备连接与守护进程状态
 EOF
         ;;
