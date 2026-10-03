@@ -52,7 +52,7 @@ SWP_NOSIZE = 0x0001
 SWP_SHOWWINDOW = 0x0040
 
 def find_cast_window():
-    for title in ["PC_Mode", "Honor_PC_Mode", "Phone_Mirror", "Honor_Phone_Mirror"]:
+    for title in ["PC_Mode", "Honor_PC_Mode", "Phone_Mirror", "Android_Phone_Mirror", "Honor_Phone_Mirror"]:
         hwnd = user32.FindWindowW(None, title)
         if hwnd and user32.IsWindowVisible(hwnd):
             return hwnd, title
@@ -117,8 +117,8 @@ os.environ['SCRCPY_SERVER_PATH'] = os.path.join(core_dir, "scrcpy-server")
 
 def probe_and_prepare_device():
     try:
-        brand = subprocess.check_output([adb, "shell", "getprop", "ro.product.brand"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore").strip()
-        manu = subprocess.check_output([adb, "shell", "getprop", "ro.product.manufacturer"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore").strip()
+        brand = subprocess.check_output([adb, "shell", "getprop", "ro.product.brand"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore").strip().lower()
+        manu = subprocess.check_output([adb, "shell", "getprop", "ro.product.manufacturer"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore").strip().lower()
         sdk_str = subprocess.check_output([adb, "shell", "getprop", "ro.build.version.sdk"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore").strip()
         m = re.search(r'\d+', sdk_str)
         sdk = int(m.group(0)) if m else 30
@@ -127,9 +127,14 @@ def probe_and_prepare_device():
         subprocess.run([adb, "shell", "settings put global adb_allowed_connection_time 0; settings put global force_desktop_mode_on_external_displays 1; settings put global enable_freeform_support 1"], creationflags=CREATE_NO_WINDOW, timeout=5)
         
         # Brand adaptations
-        combined = f"{brand} {manu}".lower()
+        combined = f"{brand} {manu}"
+        has_pc_desktop = True
         if "honor" in combined or "huawei" in combined:
             subprocess.run([adb, "shell", "settings put secure selected-proj-mode 1"], creationflags=CREATE_NO_WINDOW, timeout=4)
+            # Check if DesktopActivity exists (Mate/P/Magic/V has it, Nova/Enjoy doesn't)
+            pkg_dump = subprocess.check_output([adb, "shell", "cmd package dump com.huawei.desktop.explorer"], creationflags=CREATE_NO_WINDOW, timeout=4).decode("utf-8", errors="ignore")
+            if "DesktopActivity" not in pkg_dump:
+                has_pc_desktop = False
         
         # Push screen-off helper and auto daemon
         if os.path.exists(helper_jar):
@@ -138,9 +143,9 @@ def probe_and_prepare_device():
             subprocess.run([adb, "push", daemon_sh, "/data/local/tmp/auto_screen_off.sh"], creationflags=CREATE_NO_WINDOW, timeout=5)
             subprocess.run([adb, "shell", "chmod 755 /data/local/tmp/auto_screen_off.sh; (ps -ef 2>/dev/null || ps 2>/dev/null) | grep -q '[a]uto_screen_off.sh' || (nohup /data/local/tmp/auto_screen_off.sh >/dev/null 2>&1 < /dev/null &)"], creationflags=CREATE_NO_WINDOW, timeout=5)
             
-        return sdk
+        return sdk, has_pc_desktop
     except Exception:
-        return 30
+        return 30, True
 
 hwnd_init, _ = find_cast_window()
 was_connected = bool(hwnd_init)
@@ -176,12 +181,12 @@ while True:
                 
                 if (not was_connected) or disconnected_abnormally:
                     was_connected = True
-                    sdk = probe_and_prepare_device()
+                    sdk, has_pc_desktop = probe_and_prepare_device()
                     if not is_running:
                         if h_proc:
                             kernel32.CloseHandle(h_proc)
                         
-                        if sdk >= 29:
+                        if sdk >= 29 and has_pc_desktop:
                             # Try Desktop Mode
                             cmd = f'"{scrcpy}" --new-display=1920x1080/160 --turn-screen-off --no-audio --no-mouse-hover --window-title=PC_Mode'
                             h_proc = launch_on_real_desktop(cmd, core_dir)
@@ -194,7 +199,7 @@ while True:
                                 cmd_fallback = f'"{scrcpy}" --turn-screen-off --stay-awake --no-audio --window-title=Phone_Mirror'
                                 h_proc = launch_on_real_desktop(cmd_fallback, core_dir)
                         else:
-                            # Older Android SDK < 29, launch Mirror Mode directly
+                            # Non-desktop phone or older Android SDK < 29, launch Mirror Mode directly
                             cmd = f'"{scrcpy}" --turn-screen-off --stay-awake --no-audio --window-title=Phone_Mirror'
                             h_proc = launch_on_real_desktop(cmd, core_dir)
             else:

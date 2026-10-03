@@ -40,12 +40,18 @@ function Initialize-Phone {
 
     # 2. 品牌针对性适配
     $BrandLower = "$Brand $Manufacturer".ToLower()
+    $HasPcDesktop = $true
     if ($BrandLower -match "honor|huawei") {
-        # 荣耀 / 华为 EMUI / MagicOS 原生电脑模式开关
         & $Adb shell settings put secure selected-proj-mode 1 2>$null
-        Write-Host "  -> 已开启荣耀/华为 MagicOS 专属原生电脑桌面引擎" -ForegroundColor DarkCyan
+        $pkgDump = (& $Adb shell "cmd package dump com.huawei.desktop.explorer 2>&1") -join ""
+        if ($pkgDump -notmatch "DesktopActivity") {
+            $HasPcDesktop = $false
+            Write-Host "  [提示] 当前机型为华为/荣耀非旗舰系列(如 Nova/畅享)，官方系统底层未内置独立电脑桌面(DesktopActivity)。" -ForegroundColor Yellow
+            Write-Host "         套件已为您自动启用【1:1 超清手机镜像投屏】！" -ForegroundColor Yellow
+        } else {
+            Write-Host "  -> 已开启荣耀/华为 MagicOS 专属原生电脑桌面引擎" -ForegroundColor DarkCyan
+        }
     } elseif ($BrandLower -match "xiaomi|redmi|poco") {
-        # 小米 / 红米 MIUI / HyperOS 特殊权限检测
         $testInput = (& $Adb shell "input tap 0 0 2>&1") -join ""
         if ($testInput -match "permission|denied|SecurityException") {
             Write-Host "  [!] 小米/红米安全设置提示: 检测到未开启模拟点击权限。" -ForegroundColor Yellow
@@ -70,7 +76,7 @@ function Initialize-Phone {
         & $Adb shell "chmod 755 /data/local/tmp/auto_screen_off.sh; (ps -ef 2>/dev/null || ps 2>/dev/null) | grep -q '[a]uto_screen_off.sh' || (nohup /data/local/tmp/auto_screen_off.sh >/dev/null 2>&1 < /dev/null &)" 2>$null
     }
 
-    return @{ Sdk = $Sdk; Brand = $Brand; AndroidVer = $AndroidVer }
+    return @{ Sdk = $Sdk; Brand = $Brand; AndroidVer = $AndroidVer; HasPcDesktop = $HasPcDesktop }
 }
 
 function Start-MirrorMode {
@@ -88,6 +94,12 @@ function Start-DesktopMode {
     $info = Initialize-Phone
     $sdk = $info.Sdk
     $ver = $info.AndroidVer
+    $hasDesktop = $info.HasPcDesktop
+
+    if (-not $hasDesktop) {
+        Start-MirrorMode -Title "Android_Phone_Mirror"
+        return
+    }
 
     if ($sdk -gt 0 -and $sdk -lt 29) {
         Write-Host "[兼容模式] 检测到系统为 Android $ver (SDK $sdk < 29)。" -ForegroundColor Yellow
@@ -122,8 +134,8 @@ switch ($Command.ToLower()) {
         Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process -Force
         $pyw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
         if ($pyw -and (Test-Path $PywScript)) {
-            Start-Process -FilePath $pyw -ArgumentList "`"$PywScript`"" -WorkingDirectory $CoreDir
-            Write-Host "[守护] 已启动 Windows 后台 USB 插线自动电脑模式守护进程 (多机型智能适配 + 容灾降级支持)！" -ForegroundColor Green
+            Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$pyw`" `"$PywScript`""; CurrentDirectory = $CoreDir } | Out-Null
+            Write-Host "[守护] 已在当前登录桌面启动 Windows 后台 USB 插线自动电脑模式守护进程！" -ForegroundColor Green
         } else {
             Start-Process -FilePath "powershell.exe" -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Ps1Script`"" -WorkingDirectory $CoreDir
             Write-Host "[守护] 已启动 PowerShell 后台 USB 插线自动电脑模式守护进程！" -ForegroundColor Green
